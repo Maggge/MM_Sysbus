@@ -133,7 +133,7 @@ private:
 
 public:
     /**
-     * Simple Controller with fixed boot node-Id and without eeprom config-storage.
+     * Controller with fixed boot node-Id and without eeprom config-storage.
      * @param nodeID between 1 and 2047
      */
     MM_Sysbus(uint16_t nodeID);

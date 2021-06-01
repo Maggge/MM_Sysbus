@@ -1,5 +1,5 @@
 /*
-    MM_Sysbus Hooks
+    MM_Sysbus Hook
 
     Copyright (C) 2020  Markus Mair
 

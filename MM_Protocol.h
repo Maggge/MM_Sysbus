@@ -59,7 +59,7 @@ enum MM_CMD{
     CONTROL_MODE= 0x9D, //
     SET_TEMP    = 0x9E, //
     HYS         = 0x9F, //
-    TEMP        = 0xA0, //Temperature, x*0.1°C, int
+    TEMP        = 0xA0, //Temperature, float
     HUM         = 0xA1, //Humidity, x*0.1%RH, unsigned int
     PRS         = 0xA2, //Pressure, x*0.1hPa, unsigned int
     LUX         = 0xA5, //unsigned long

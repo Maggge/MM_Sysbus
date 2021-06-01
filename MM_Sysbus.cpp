@@ -98,7 +98,7 @@ bool MM_Sysbus::attachBus(MM_Interface* bus){
     for(int i = 0; i < MM_BUSNUM; i++){
         if(_interfaces[i] == bus){
             #ifdef MM_DEBUG
-                Serial.println("Bus already attached")
+                Serial.println("Bus already attached");
             #endif
             return false;
         }
@@ -107,27 +107,26 @@ bool MM_Sysbus::attachBus(MM_Interface* bus){
         if(_interfaces[busId] == NULL){
             _interfaces[busId] = bus;
 
-            uint8_t err = bus->begin();
-            if (err == 0) {
+            if (bus->begin()) {
                 //Boot message
                 uint8_t data[1] = { NODE_BOOT };
                 bus->Send(Broadcast, 0x00, _nodeID, 0, sizeof(data), data);
 
                 #ifdef MM_DEBUG
-                    Serial.println("Bus attached")
+                    Serial.println("Bus attached");
                 #endif
                 return true;
             }else{
                 _interfaces[busId] = NULL;
                 #ifdef MM_DEBUG
-                    Serial.println("Bus error!")
+                    Serial.println("Bus error!");
                 #endif
                 return false;
             }
         }
     }
     #ifdef MM_DEBUG
-        Serial.println("Max Buses attached")
+        Serial.println("Max Buses attached");
     #endif
     return false;
 }
@@ -137,13 +136,13 @@ bool MM_Sysbus::detachBus(MM_Interface* bus){
         if(_interfaces[i] == bus){
             _interfaces[i] = NULL;
             #ifdef MM_DEBUG
-                Serial.println("Bus detached")
+                Serial.println("Bus detached");
             #endif
             return true;
         }
     }
     #ifdef MM_DEBUG
-        Serial.println("Bus isn't attached")
+        Serial.println("Bus isn't attached");
     #endif
     return false;
 }
@@ -313,7 +312,7 @@ bool MM_Sysbus::attachModule(MM_Module *module, uint8_t cfgId){
     for(int i = 0; i < MM_MODULNUM; i++){
         if(_modules[i] == module){
             #ifdef MM_DEBUG
-                Serial.println("Module already attached")
+                Serial.println("Module already attached");
             #endif
             return false;
         }
@@ -324,13 +323,13 @@ bool MM_Sysbus::attachModule(MM_Module *module, uint8_t cfgId){
         module->_controller = this;
         module->begin(_useEEPROM, cfgId);
         #ifdef MM_DEBUG
-            Serial.println("Module attached")
+            Serial.println("Module attached");
         #endif
         return true;
     }else
     {
         #ifdef MM_DEBUG
-            Serial.println("Module slot already occupied!")
+            Serial.println("Module slot already occupied!");
         #endif
         return false;
     }
@@ -346,7 +345,7 @@ uint8_t MM_Sysbus::attachModule(MM_Module *module){
         }
     }
     #ifdef MM_DEBUG
-        Serial.println("Max Modules added!")
+        Serial.println("Max Modules added!");
     #endif
     return 255;
 }
@@ -356,13 +355,13 @@ bool MM_Sysbus::detachModule(MM_Module *module){
         if(_modules[i] == module){
             _modules[i] = NULL;
             #ifdef MM_DEBUG
-                Serial.println("Module detached")
+                Serial.println("Module detached");
             #endif
             return true;
         }
     }
     #ifdef MM_DEBUG
-        Serial.println("Module not found")
+        Serial.println("Module not found");
     #endif
     return false;
 }
@@ -382,7 +381,6 @@ bool MM_Sysbus::hookAttach(MM_MsgType msgType, uint16_t target, uint8_t port, MM
 }
 
 MM_Packet MM_Sysbus::loop(void) {
-
     MM_Packet pkg;
 
     //Packet handling
