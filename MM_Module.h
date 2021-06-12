@@ -31,99 +31,20 @@
 class MM_Sysbus;
 
 #ifndef MULTICAST_TARGETS
-    #define MULTICAST_TARGETS 5
+    #define MULTICAST_TARGETS 10
 #endif
 
-#ifndef REGISTER_PER_MODUL
-    #define REGISTER_PER_MODUL 64
+#ifndef MAX_CONFIG_SIZE
+    #define MAX_CONFIG_SIZE 64
 #endif
 
 /**
- * Register Class
- * Load/Store and manage the EEPROM-Registers
- * The first Register is reserved for the cfgID and must be set before loading otherwise loading fails!
+ * Target-struct
  */
-class Register{
-    private:
-        /**
-         * Pointer to register Variables
-         */
-        uint8_t *_regs[REGISTER_PER_MODUL];
-
-        /**
-         * Number of registers occupied
-         */
-        uint8_t _regsCount = 0;
-
-    public:
-
-        /**
-         * EEPROM-Start-Address of the Register
-         * This Address we request from the Controller
-         */
-        uint16_t eepromAddress = 65535;
-
-        template<typename T> 
-        bool addRegister(const T *reg);
-
-        bool setRegister(uint8_t index, uint8_t len, uint8_t* data);
-        uint8_t getRegister(uint8_t index);
-
-        bool saveRegister();
-        bool loadRegister();
-
-        bool clearRegister();
-};
-
-
-/**
- * Multicast Targets class
- * Holds and handle Multicast Targets
- * To store the targets in the register call 
- */
-class MulticastTargets{
-    private:
-
-        Register *_reg;
-    
-    public:
-        /**
-         * Target Addresses for Multicast
-         */
-        uint16_t _targets[MULTICAST_TARGETS];
-
-        /**
-         * Add register to store the target list
-         * @param reg pointer of the Register to store the list
-         */
-        void useRegister(Register *reg);
-
-        /**
-         * Add a Target to the list
-         * @param target address to add
-         * @return true if successful, false if target is already in list or list is full
-         */
-        bool addTarget(uint16_t target);
-
-        /**
-         * Remove a Target from the list
-         * @param target address to remove
-         * @return true if successful, false if target isn't in list
-         */
-        bool removeTarget(uint16_t target);
-
-        /**
-         * Checks if a Target is in the list
-         * @param target address to check
-         * @return true if Target is in list
-         */
-        bool checkTarget(uint16_t target);
-
-        /**
-         * Clears the whole list
-         * @return true if successful
-         */
-        bool clearTargets();
+struct MM_Target
+{
+    uint16_t address;
+    MM_CMD filter;
 };
 
 /**
@@ -133,65 +54,16 @@ class MulticastTargets{
  */
 class MM_Module{
     public:
+
         /**
          * Pointer to our Controller
          */
         MM_Sysbus *_controller;
 
-    protected:
-
         /**
-         * Type of the module
-         * The module Type is submitted in the MOD_Type Message at startup and
-         * to check if the config in EEPROM is for this module
+         * return the port of the module
          */
-        MM_ModuleType _moduleType;
-
-        /**
-         * ID of the module
-         * gets set by MM_Sysbus on attach Module to get EEPROM_address etc. 
-         */
-        uint8_t _cfgId = 255;
-        
-        /**
-         * indicates if we use EEPROM
-         */
-        bool _useEEPROM = false;
-
-        /**
-         * Register holds the whole config
-         * _register[0] is reserved for moduleID
-         * If we use EEPROM we must call addRegister(_moduleType) at first in the begin() otherwise the cfg will be corrupted!
-         * 
-         */
-        Register _register;
-
-        /**
-         * _multicastTargets
-         * 
-         */
-        MulticastTargets _multicastTargets;
-
-        /**
-         * Target Port for Unicast
-         */ 
-        uint8_t _port = 0;
-
-        /**
-         * Check if the Message is for this module(Unicast and Multicast)
-         * if the message is a cfgMessage and this function can do the work returns false;
-         * @param pkg the received Package
-         * @return return true if the package is for the module
-         */
-        bool checkMsg(MM_Packet &pkg);
-
-        /**
-         * Reset current configuration
-         * @return bool true if successful
-         */
-        bool cfgReset();
-
-    public:
+        uint8_t port();
 
         /**
          * Configure pins etc.
@@ -222,6 +94,117 @@ class MM_Module{
          * Broadcast the Module Type if _controller != NULL 
          */
         void broadcastModuleType();
+
+
+    protected:
+        /**
+         * Type of the module
+         * The module Type is submitted in the MOD_Type Message at startup and
+         * to check if the config in EEPROM is for this module
+         */
+        MM_ModuleType _moduleType;
+
+        /**
+         * ID of the module
+         * gets set by MM_Sysbus on attach Module to get EEPROM_address etc. 
+         */
+        uint8_t _cfgId = 255;
+        
+        /**
+         * indicates if we use EEPROM
+         */
+        bool _useEEPROM = false;
+        
+        /**
+         * Targets for Multicast Messages
+         */
+        MM_Target _multicastTargets[MULTICAST_TARGETS];
+
+        /**
+         * Add a Target to the list
+         * @param target and MM_CMD address to add
+         * @return true if successful, false if target is already in list or list is full
+         */
+        bool addMulticastTarget(uint16_t addr, MM_CMD filter);
+
+        /**
+         * Remove a Target from the list
+         * @param target address and MM_CMD to remove
+         * @return true if successful, false if target isn't in list
+         */
+        bool removeMulticastTarget(uint16_t addr, MM_CMD filter);
+
+        /**
+         * Checks if a Target is in the list
+         * @param target address and MM_CMD to check
+         * @return true if Target is in list
+         */
+        bool checkMulticastTarget(uint16_t addr, MM_CMD filter);
+
+        /**
+         * Clears the whole list
+         * @return true if successful
+         */
+        bool clearMulticastTargets();
+
+        /**
+         * store the targets in EEPROM
+         */
+        bool saveMulticastTargets();
+
+        /**
+         * load the targets from EEPROM
+         */
+        bool loadMulticastTargets();
+
+        /**
+         * Check if the Message is for this module(Unicast and Multicast)
+         * if the message is a cfgMessage and this function can do the work returns false;
+         * @param pkg the received Package
+         * @return return true if the package is for the module
+         */
+        bool checkMsg(MM_Packet &pkg);
+
+        /**
+         * Write the config to EEPROM
+         * @param config struct
+         */
+        template <class T> bool writeConfig(const T& config);
+
+        /**
+         * Read the config from EEPROM
+         * @param config struct
+         */
+        template <class T> bool readConfig(T& config);
+
+        /**
+         * Reset current configuration and reboot the node
+         * @return bool false if failed
+         */
+        bool cfgReset();
+
+    private:
+        /**
+         * Target Port for Unicast
+         */ 
+        uint8_t _port = 0;
+
+        /**
+         * Write data to EEPROM
+         * @param eepromAddr where to write the data in EEPROM
+         * @param data struct to write
+         * @return true if successfull
+         */
+        template <class T> bool EEPROM_write(int eepromAddr, T& data);
+
+        /**
+         * Read data from EEPROM
+         * @param eepromAddr where to find the data in EEPROM
+         * @param data struct to read
+         * @return true if successfull
+         */
+        template <class T> bool EEPROM_read(int eepromAddr, T& data);
+    
 };
 
 #endif

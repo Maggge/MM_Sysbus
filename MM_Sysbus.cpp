@@ -1,33 +1,31 @@
 #include "MM_Sysbus.h"
 
 MM_Sysbus::MM_Sysbus(uint16_t nodeID) {
-    _nodeID = nodeID;
     _useEEPROM = false;
-    _initialized = true;
+    setNodeId(nodeID);
     _firstboot = true;
-     #ifdef MM_DEBUG
+    #ifdef MM_DEBUG
         Serial.print("Node initailized with ID: ");
         Serial.println(_nodeID);
     #endif
 }
 
 MM_Sysbus::MM_Sysbus(uint16_t nodeID, uint16_t EEPROMstart){
-    _nodeID = nodeID;
     _useEEPROM = true;
     _EEPROMaddr = EEPROMstart;
+    setNodeId(nodeID);
 
     uint8_t cfg;
     EEPROM.get(_EEPROMaddr, cfg);
     if (cfg == 99) {
         EEPROM.get(_EEPROMaddr + 1, _nodeID);
+        _initialized = true;
         _firstboot = false;
     }
     else{
-        EEPROM.update(_EEPROMaddr, 99);
-        EEPROM.update(_EEPROMaddr + 1, _nodeID);
+        setNodeId(nodeID);
         _firstboot = true;
     }
-    _initialized = true;
     #ifdef MM_DEBUG
         Serial.print("Node initailized with ID: ");
         Serial.println(_nodeID);
@@ -38,10 +36,9 @@ MM_Sysbus::MM_Sysbus(uint8_t cfgButton, uint8_t statusLED, uint16_t EEPROMstart)
     _useEEPROM = true;
     _EEPROMaddr = EEPROMstart;
 
-    _cfgBtn = cfgButton;
+    _cfgBtn = &ConfigButton(cfgButton, 5000);
     _statusLED = statusLED;
     pinMode(_statusLED, OUTPUT);
-    pinMode(_cfgBtn, INPUT_PULLUP);
 
     uint8_t cfg;
     EEPROM.get(_EEPROMaddr, cfg);
@@ -74,19 +71,33 @@ bool MM_Sysbus::firstboot(void (*function)()){
 }
 
 bool MM_Sysbus::setNodeId(uint16_t nodeID){
+    #ifdef MM_DEBUG
+        Serial.print("Request ID: ");
+        Serial.println(nodeID);
+    #endif
     if(nodeID < 0 || nodeID > 2047){
         return false;
     }
     _nodeID = nodeID;
     _initialized = true;
-    if(_useEEPROM){
-        EEPROM.update(_EEPROMaddr, (uint8_t)99);
-        EEPROM.put(_EEPROMaddr + 1, _nodeID);
-    }
     #ifdef MM_DEBUG
         Serial.print("Set new Node ID: ");
         Serial.println(_nodeID);
     #endif
+    if(_useEEPROM){
+        EEPROM.update(_EEPROMaddr, (uint8_t)99);
+        EEPROM.put(_EEPROMaddr + 1, _nodeID);
+    }
+   
+    uint8_t data[1] = { MM_CMD::NODE_BOOT };
+    Send(MM_MsgType::Broadcast, 0x00, 1, data);
+
+    for (int i = 0; i < MAX_MODULES; i++) {
+        if (_modules[i] != NULL) {
+            _modules[i]->broadcastModuleType();
+        }
+    }
+    
     return true;
 }
 
@@ -95,7 +106,7 @@ uint16_t MM_Sysbus::nodeID(){
 }
 
 bool MM_Sysbus::attachBus(MM_Interface* bus){
-    for(int i = 0; i < MM_BUSNUM; i++){
+    for(int i = 0; i < MAX_INTERFACES; i++){
         if(_interfaces[i] == bus){
             #ifdef MM_DEBUG
                 Serial.println("Bus already attached");
@@ -103,15 +114,16 @@ bool MM_Sysbus::attachBus(MM_Interface* bus){
             return false;
         }
     }
-    for(int busId = 0; busId < MM_BUSNUM; busId++){
+    for(int busId = 0; busId < MAX_INTERFACES; busId++){
         if(_interfaces[busId] == NULL){
             _interfaces[busId] = bus;
 
             if (bus->begin()) {
-                //Boot message
-                uint8_t data[1] = { NODE_BOOT };
-                bus->Send(Broadcast, 0x00, _nodeID, 0, sizeof(data), data);
-
+                if(_initialized){
+                    //Boot message
+                    uint8_t data[1] = { MM_CMD::NODE_BOOT };
+                    bus->Send(MM_MsgType::Broadcast, 0x00, _nodeID, 0, sizeof(data), data);
+                }
                 #ifdef MM_DEBUG
                     Serial.println("Bus attached");
                 #endif
@@ -132,7 +144,7 @@ bool MM_Sysbus::attachBus(MM_Interface* bus){
 }
 
 bool MM_Sysbus::detachBus(MM_Interface* bus){
-    for(int i = 0; i < MM_BUSNUM; i++){
+    for(int i = 0; i < MAX_INTERFACES; i++){
         if(_interfaces[i] == bus){
             _interfaces[i] = NULL;
             #ifdef MM_DEBUG
@@ -151,7 +163,7 @@ bool MM_Sysbus::detachBus(MM_Interface* bus){
 bool MM_Sysbus::Send(MM_Packet pkg){
     bool allSuccesfull = true;
 
-    for (signed char busId = 0; busId < MM_BUSNUM; busId++) {
+    for (signed char busId = 0; busId < MAX_INTERFACES; busId++) {
         if (_interfaces[busId] != NULL && busId != pkg.meta.busId) {
             if(!_interfaces[busId]->Send(pkg.meta.type, pkg.meta.target, pkg.meta.source, pkg.meta.port, pkg.len, pkg.data)){
                 allSuccesfull = false;
@@ -166,7 +178,9 @@ bool MM_Sysbus::Send(MM_Packet pkg){
 
     if(pkg.meta.busId < 0){
         //The message is sent from local source, check for actions
-        Process(pkg);
+        if(_initialized && _nodeID != 0){
+            Process(pkg);
+        }
     }
 
     #ifdef MM_DEBUG
@@ -225,34 +239,34 @@ bool MM_Sysbus::Receive(MM_Packet &pkg){
 bool MM_Sysbus::Receive(MM_Packet &pkg, bool routing){
     bool check = false;
 
-    for (signed char busId = 0; busId < MM_BUSNUM; busId++) {
+    for (signed char busId = 0; busId < MAX_INTERFACES; busId++) {
         if (_interfaces[busId] != NULL) {
             check = _interfaces[busId]->Receive(pkg);
             if (check) {
                 pkg.meta.busId = busId;
-#ifdef MM_DEBUG
-                Serial.println("---Message Received---");
-                Serial.print("Type: ");
-                Serial.println(pkg.meta.type);
-                Serial.print("Target: ");
-                Serial.println(pkg.meta.target);
-                Serial.print("Port: ");
-                Serial.println((uint8_t)pkg.meta.port);
-                Serial.print("Source: ");
-                Serial.println(pkg.meta.source);
-                Serial.print("Data Lenght: ");
-                Serial.println((uint8_t)pkg.len);
-                for (int i = 0; i < pkg.len; i++) {
-                    Serial.println(pkg.data[i]);
-                }
-#endif
-                if(_initialized){
-                    Process(pkg);
-                }
-
+                #ifdef MM_DEBUG
+                    Serial.println("---Message Received---");
+                    Serial.print("Type: ");
+                    Serial.println(pkg.meta.type);
+                    Serial.print("Target: ");
+                    Serial.println(pkg.meta.target);
+                    Serial.print("Port: ");
+                    Serial.println((uint8_t)pkg.meta.port);
+                    Serial.print("Source: ");
+                    Serial.println(pkg.meta.source);
+                    Serial.print("Data Lenght: ");
+                    Serial.println((uint8_t)pkg.len);
+                    for (int i = 0; i < pkg.len; i++) {
+                        Serial.println(pkg.data[i]);
+                    }
+                #endif
                 if (routing) {
                     //Resend to every attached interface except the one we received it on (pkg.meta.busId)
                     Send(pkg);
+                }
+
+                if(_initialized && _nodeID != 0){
+                    Process(pkg);
                 }
                 return true;
             }
@@ -265,54 +279,86 @@ void MM_Sysbus::Process(MM_Packet& pkg) {
     uint8_t i;
     uint8_t data[8];
 
-    //Internal logic
-    if (pkg.len >= 1) {
-        switch (pkg.data[0]) {
-        case RESET_NODE:
-            if (pkg.meta.type != Unicast || pkg.meta.target != _nodeID) break;       
-            reset();
-            break;
-        case NODE_PING:
-            if (pkg.meta.type != Unicast || pkg.meta.target != _nodeID) break;
-            data[0] = NODE_PONG;
-            Send(Unicast, pkg.meta.source, _nodeID, pkg.meta.port, 1, data, -1);
-            break;
-        case NODE_ID:
-            if (pkg.meta.type != Unicast || pkg.meta.target != _nodeID || pkg.len < 3) break;
-            int id = int(data[1] << 8) + int(data[2]);
-            setNodeId(id);
-            break;
-        }
-    }
-
-    //attached modules
-    if (((pkg.meta.type == Unicast || pkg.meta.type == Streaming) && pkg.meta.target == _nodeID) || pkg.meta.type == Multicast) {
-        for (int i = 0; i < MM_MODULNUM; i++) {
-            if (_modules[i] != NULL) {
-                _modules[i]->process(pkg);
-            }
-        }
-    }
-
     //attached hooks
-    for (i = 0; i < MM_HOOKNUM; i++) {
+    for (i = 0; i < MAX_HOOKS; i++) {
         if (_hooks[i].execute != NULL) {
             if (
                 (_hooks[i].type == pkg.meta.type) &&
                 (_hooks[i].target == 0 || _hooks[i].target == pkg.meta.target) &&
                 (_hooks[i].port == -1  || _hooks[i].port == pkg.meta.port) &&
-                (_hooks[i].cmd == ALL_CMDS  || (pkg.len > 0 && _hooks[i].cmd == pkg.data[0]))){
+                (_hooks[i].cmd == MM_CMD::ALL_CMDS  || (pkg.len > 0 && _hooks[i].cmd == pkg.data[0]))){
                 _hooks[i].execute(pkg);
+            }
+        }
+    }
+ 
+    //Internal logic
+    if (pkg.len >= 1) {
+        MM_CMD cmd = (MM_CMD)pkg.data[0];
+        switch (cmd) {
+            case NODE_PING:
+                if (pkg.meta.type != MM_MsgType::Unicast || pkg.meta.target != _nodeID) break;  
+                data[0] = MM_CMD::NODE_PONG;
+                Send(MM_MsgType::Unicast, pkg.meta.source, _nodeID, pkg.meta.port, 1, data, -1);
+                break;
+            case NODE_PONG:
+                break;
+            case REQ_TYPE:
+                if(pkg.meta.type == MM_MsgType::Broadcast){
+                    for (int i = 0; i < MAX_MODULES; i++) {
+                        if (_modules[i] != NULL) {
+                            _modules[i]->broadcastModuleType();
+                        }
+                    }
+                }
+                else if(pkg.meta.type == MM_MsgType::Unicast && pkg.meta.target == _nodeID){
+                    for (int i = 0; i < MAX_MODULES; i++) {
+                        if (_modules[i] != NULL && _modules[i]->port() == pkg.meta.port) {
+                            _modules[i]->broadcastModuleType();
+                        }
+                    }
+                }
+                break;
+            case RESET_NODE:
+                if (pkg.meta.type != MM_MsgType::Unicast || pkg.meta.target != _nodeID){
+                    break;
+                }    
+                reset();
+                break;
+            case NODE_ID:
+                if(!_initialized || pkg.meta.target != _nodeID || pkg.len != 3) break;
+                setNodeId((pkg.data[1] << 8) | (pkg.data[2]));
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    //attached modules
+    if ( pkg.meta.type == MM_MsgType::Multicast ) {
+        for (int i = 0; i < MAX_MODULES; i++) {
+            if (_modules[i] != NULL) {
+                _modules[i]->process(pkg);
+            }
+        }
+        return;
+    }
+    else if((pkg.meta.type == MM_MsgType::Unicast || pkg.meta.type == MM_MsgType::Streaming) && pkg.meta.target == _nodeID){
+        for (int i = 0; i < MAX_MODULES; i++) {
+            if (_modules[i] != NULL && _modules[i]->port()) {
+                _modules[i]->process(pkg);
+                return;
             }
         }
     }
 }
 
 bool MM_Sysbus::attachModule(MM_Module *module, uint8_t cfgId){
-    for(int i = 0; i < MM_MODULNUM; i++){
-        if(_modules[i] == module){
+    for(int i = 0; i < MAX_MODULES; i++){
+        if(_modules[i]->port() == module->port()){
             #ifdef MM_DEBUG
-                Serial.println("Module already attached");
+                Serial.println("Port already in use");
             #endif
             return false;
         }
@@ -336,7 +382,7 @@ bool MM_Sysbus::attachModule(MM_Module *module, uint8_t cfgId){
 }
 
 uint8_t MM_Sysbus::attachModule(MM_Module *module){
-    for(int i = 0; i < MM_MODULNUM; i++){
+    for(int i = 0; i < MAX_MODULES; i++){
         if(_modules[i] == NULL){
             if(attachModule(module, i)){
                 return i;
@@ -351,7 +397,7 @@ uint8_t MM_Sysbus::attachModule(MM_Module *module){
 }
 
 bool MM_Sysbus::detachModule(MM_Module *module){
-    for(int i = 0; i < MM_MODULNUM; i++){
+    for(int i = 0; i < MAX_MODULES; i++){
         if(_modules[i] == module){
             _modules[i] = NULL;
             #ifdef MM_DEBUG
@@ -366,8 +412,8 @@ bool MM_Sysbus::detachModule(MM_Module *module){
     return false;
 }
 
-bool MM_Sysbus::hookAttach(MM_MsgType msgType, uint16_t target, uint8_t port, MM_CMD cmd, void (*function)(MM_Packet&)) {
-    for (byte i = 0; i < MM_HOOKNUM; i++) {
+bool MM_Sysbus::attachHook(MM_MsgType msgType, uint16_t target, uint8_t port, MM_CMD cmd, void (*function)(MM_Packet&)) {
+    for (byte i = 0; i < MAX_HOOKS; i++) {
         if (_hooks[i].execute == 0) {
             _hooks[i].type = msgType;
             _hooks[i].target = target;
@@ -386,18 +432,19 @@ MM_Packet MM_Sysbus::loop(void) {
     //Packet handling
     Receive(pkg);
 
-    processCfgButton();
-    
-    if (_cfgBtnPressed && _cfgBtnTriggerTime + 5000 <= millis()) {
-        initialization();
+    if(_cfgBtn != NULL){
+        if (_cfgBtn->process() == ButtonState::Long_push) {
+            initialization();
+        }
     }
+    
     if (!_initialized) {
         digitalWrite(_statusLED, HIGH);
         return pkg;
     }    
 
     //Modules loop
-    for (int i = 0; i < MM_MODULNUM; i++) {
+    for (int i = 0; i < MAX_MODULES; i++) {
         if (_modules[i] != NULL) {
             _modules[i]->loop();
         }
@@ -406,27 +453,15 @@ MM_Packet MM_Sysbus::loop(void) {
     return pkg;
 }
 
-void MM_Sysbus::processCfgButton(){
-    if(_cfgBtnTriggerTime + 50 < millis()) return; //Debounce
-    if(!_cfgBtnPressed && digitalRead(_cfgBtn) == LOW){
-        _cfgBtnTriggerTime = millis();
-        _cfgBtnPressed = true;
-
-    }else if (_cfgBtnPressed && digitalRead(_cfgBtn) == HIGH) {
-        _cfgBtnPressed = false;
-        _cfgBtnTriggerTime = millis();
-    }
-}
-
 void MM_Sysbus::initialization() {
     MM_Packet pkg;
     uint32_t exitTime = millis() + 60000;
     while (exitTime >= millis()) {
 
-        processCfgButton();
-
-        if (_cfgBtnPressed && _cfgBtnTriggerTime + 10000 <= millis()) {
-            reset();
+        if(_cfgBtn != NULL){
+            if (_cfgBtn->process() == ButtonState::Long_push) {
+                reset();
+            }
         }
 
         if (millis() % 1000 > 500) {
@@ -438,7 +473,7 @@ void MM_Sysbus::initialization() {
 
         if (Receive(pkg) && pkg.data[0] == NODE_ID && pkg.len == 1) {
             setNodeId(pkg.meta.target); 
-            Send(Broadcast, pkg.meta.source, pkg.len, pkg.data);
+            Send(MM_MsgType::Broadcast, pkg.meta.source, pkg.len, pkg.data);
             _initialized = true;
             for (int i = 0; i < 10; i++){
                 delay(100);
@@ -453,20 +488,72 @@ void MM_Sysbus::initialization() {
 }
 
 uint16_t MM_Sysbus::getEEPROMAddress(uint8_t cfgID) {
-    return (cfgID * REGISTER_PER_MODUL) + _EEPROMaddr + 3;
+    return (cfgID * (MAX_CONFIG_SIZE + 1 + (sizeof(MM_Target) * MULTICAST_TARGETS)) + _EEPROMaddr + 3);
 }
 
 void MM_Sysbus::reset(){
-    for (int i = 0; i < 10; i++){
-        delay(50);
-        digitalWrite(_statusLED, HIGH);
-        delay(50);
-        digitalWrite(_statusLED, LOW);
+    #ifdef MM_DEBUG
+        Serial.println("Reset");
+    #endif    
+    if(_statusLED != 0){
+        for (int i = 0; i < 10; i++){
+            delay(50);
+            digitalWrite(_statusLED, HIGH);
+            delay(50);
+            digitalWrite(_statusLED, LOW);
+        }
     }
-    for (int i = 0 ; i < EEPROM.length() ; i++) {
-        EEPROM.write(i, 0);
+    if(_useEEPROM){
+        for (int i = 0 ; i < EEPROM.length() ; i++) {
+            EEPROM.write(i, 0);
+        }
     }
+    reboot();
+}
+
+void MM_Sysbus::reboot(){
+    #ifdef MM_DEBUG
+        Serial.println("Reboot");
+    #endif
     delay(100);
     wdt_enable(WDTO_15MS);
     while (true);  
+}
+
+ConfigButton::ConfigButton(uint8_t buttonPin, uint16_t t_long_press){
+    _pin = buttonPin;
+    _longPress = t_long_press;
+    pinMode(_pin, INPUT_PULLUP);
+}
+
+ButtonState ConfigButton::process(){
+    uint32_t time = millis();
+
+    if(_triggerTime + 50 < time) return; //Debounce
+
+    bool btnPressed = !digitalRead(_pin);
+
+    ButtonState state = ButtonState::Released;
+
+    if(!_pressed && btnPressed){
+        _triggerTime = time;
+        _pressed = true;
+        state = ButtonState::Pressed;
+    }else if(_pressed){
+        state = ButtonState::Pressed;
+        uint32_t pressTime = time - _triggerTime;
+        if (!btnPressed) {       
+            _pressed = false;
+            _triggerTime = time;
+            if(pressTime < _longPress){
+                state = ButtonState::Short_push;
+            }    
+            else{
+                state = ButtonState::Long_push;
+            }
+        }else if(pressTime >= _longPress){
+            state = ButtonState::Long_push;
+        }
+    }
+    return state;
 }

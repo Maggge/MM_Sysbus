@@ -58,10 +58,10 @@ uint32_t MM_CAN::CanAddrAssemble(MM_MsgType msgType, uint16_t target, uint16_t s
 uint32_t MM_CAN::CanAddrAssemble(MM_MsgType msgType, uint16_t target, uint16_t source, uint8_t port) {
         uint32_t addr = 0x80000000;
 
-        if(msgType > 0x03) return 0;
+        if(msgType > 0x04) return 0;
         addr |= ((uint32_t)msgType << 27);
 
-        if(msgType == Unicast || msgType == Broadcast) {
+        if(msgType == Unicast || msgType == Broadcast || msgType == Streaming) {
             if(target > 0x7FF) return 0;
             if(port > 0x1F) return 0;
 

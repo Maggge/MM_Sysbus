@@ -27,22 +27,28 @@ enum MM_MsgType{
 };
 
 enum MM_CMD{
-    RESET_NODE  = 0x01, //Factory Reset
-    NODE_ID     = 0x02, //Change the nodeID
-    NODE_BOOT   = 0x03, //This is sent by controller after booting
-    NODE_PING   = 0x04, //Sent to check if a node is alive
-    NODE_PONG   = 0x05, //Automatic answer to ping
-    MOD_TYPE    = 0x06, //Module Type - 2byte , modulType, _useEEPROM  
-    REQ_PRES    = 0x07, //Request the Presentation Message from each Module 
-    REQ         = 0x08, //Request the state of a value - 1-byte - type of value(MM_CMD)
-    ERROR       = 0x09, //The last Message received can't processed due to an error
-    REG_SET     = 0x0A, //Set registers 1st byte Register-index and 1-6 bytes register data
-    REG_GET     = 0x0B, //Request registers 1st byte Register-index, 2nd byte how much registers(if you request more then 6 the message will be splittet!)
-    REG_COMMIT  = 0x0C, //Commits the set or requestet Registers 1st byte Register-index and 1-6 bytes register data
-    GROUP_ADD   = 0x0D, //Add a Multicast address, 2-byte-address
-    GROUP_REM   = 0x0E, //Remove a Multicast address, 2-byte-address
-    GROUP_CLEAR = 0x0F, //Remove all Multicast addresses
-    
+    NODE_ID     = 0x01, //Change the nodeID, if node is in config - node takes the id from MM_Meta - Target, else if has already an id 2 bytes new id.
+    NODE_BOOT   = 0x02, //This is sent by controller after booting
+    NODE_PING   = 0x03, //Sent to check if a node is alive
+    NODE_PONG   = 0x04, //Automatic answer to ping
+    MOD_TYPE    = 0x05, //Module Type - 2byte , modulType, (bool)_useEEPROM  
+    REQ_TYPE    = 0x06, //Request the Module-Type, if Broadcast from all modules, if Unicast from the target,port module 
+    REQ         = 0x07, //Request the state, if Broadcast from all modules, if Unicast from the target, port module 
+    ERROR       = 0x08, //The last Message received can't processed due to an error
+    RESET_NODE  = 0x09, //Factory Reset of the whole node 
+    ACK         = 0x0A, //Ack a sucessfull config/group setting( send back ack + the sent command )
+
+
+    CFG_RESET   = 0x11, //Factory Reset of the Module config
+    CFG_REG_SET = 0x12, //Set a config-register, 1st byte Register-index and 1-6 bytes config data
+    CFG_REG_GET = 0x13, //Request config, 1 byte Register-index
+    CFG_RETURN  = 0x14, //Send back the requestet config-Register, 1st byte Register-index and 1-6 bytes register data
+
+    GROUPS_CLEAR= 0x1A, //Remove all Multicast addresses
+    GROUP_ADD   = 0x1B, //Add a Multicast address, 2-byte-address, 1 byte filter(MM_CMD)
+    GROUP_REM   = 0x1C, //Remove a Multicast address, 2-byte-address, 1 byte filter(MM_CMD)
+    GROUP_GET   = 0x1D, //Request a Target by id, 1 byte target-id
+    GROUP_RETURN= 0x1E, //Return the requestet target, 1-byte target-id, 2-byte-address, 1 byte filter(MM_CMD)    
     
     BOOL        = 0x51, //1-Bit, on/off
 
@@ -51,12 +57,13 @@ enum MM_CMD{
     SET_SCENE   = 0x92, //1 Byte, choose active scene by id
     NEXT_SCENE  = 0x93, //0-Bit, change scene to next id
     PREV_SCENE  = 0x94, //0-bit, change scene to prev id
+    SAVE_SCENE  = 0x95, //1 byte scene id, save the actual state as scene
     DATE        = 0x97, //4-byte, century, year, month, day 
     TIME        = 0x98, //3-byte, hour, minute, second
     DATE_TIME   = 0x99, //combine DATE and TIME - 7-byte - century, year, month, day, hour, minute, second
 
 
-    CONTROL_MODE= 0x9D, //
+    CONTROL_MODE= 0x9D, //Clima Control Mode
     SET_TEMP    = 0x9E, //
     HYS         = 0x9F, //
     TEMP        = 0xA0, //Temperature, float
@@ -85,7 +92,7 @@ enum MM_CMD{
     RGBW        = 0xE5, //RGBW
     RGBWW       = 0xE6, //RGBWW
     HSV         = 0xE7, //4-byte, uint16_t hue(0-360), uint8_t sat(0-255),uint8_t val(0-255)
-    SCENE       = 0xE8, //Activate Scene 1 byte SceneID;
+    
     PWM         = 0xE9, //1-byte pwm value between 0 and 255
     KWH         = 0xEA, //Kwh, float value (4 bytes)
     KWH_TODAY   = 0xEB, //Kwh generated or consumed today, float value (4 bytes)

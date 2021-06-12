@@ -24,18 +24,18 @@
 
 
 //Max number of bus-interfaces
-#ifndef MM_BUSNUM
-    #define MM_BUSNUM 3
+#ifndef MAX_INTERFACES
+    #define MAX_INTERFACES 3
 #endif
 
 //Max number of attached hooks
-#ifndef MM_HOOKNUM
-    #define MM_HOOKNUM 5
+#ifndef MAX_HOOKS
+    #define MAX_HOOKS 3
 #endif
 
 //Max number of modules
-#ifndef MM_MODULNUM
-    #define MM_MODULNUM 5
+#ifndef MAX_MODULES
+    #define MAX_MODULES 5
 #endif
 
 #include <Arduino.h>
@@ -51,7 +51,51 @@
 #include "MM_Hook.h"
 #include "MM_Module.h"
 
+enum ButtonState{
+    Released,
+    Pressed,
+    Short_push,
+    Long_push,
+};
 
+class ConfigButton{
+public: 
+    /**
+     * Config Button
+     * @param buttonPin where the switch-button is connected
+     * @param t_long_press - milliseconds of a long press
+     */
+    ConfigButton(uint8_t buttonPin, uint16_t t_long_press);
+
+
+    /**
+     * Config Button process
+     * @return the Button-state, Released - if released, Short_push if the push down was under t_long_press, Long_push if the push down was over t_long_press
+     */
+    ButtonState process();
+private:
+
+    /**
+     * Stores the pin of the button
+     */
+    uint8_t _pin;
+
+    /**
+     * milliseconds of a long press
+     */
+    uint16_t _longPress;
+
+    /**
+     * Indicates if the cfg Button is pressed or not
+     */
+    volatile bool _pressed = false;
+
+    /**
+     * stores the last time(millis()) the cfg Button triggered
+     */
+    volatile uint32_t _triggerTime = 0;
+ 
+};
 
 
 //MM_Sysbus Controller
@@ -86,23 +130,23 @@ private:
     /**
      * Pin number of config Button
      */
-    uint8_t _cfgBtn;
+    ConfigButton *_cfgBtn = NULL;
 
 
     /**
      * Attached communication interfaces
      */
-    MM_Interface *_interfaces[MM_BUSNUM];
+    MM_Interface *_interfaces[MAX_INTERFACES];
 
     /**
      * Attached hooks
      */
-    MM_Hook _hooks[MM_HOOKNUM];
+    MM_Hook _hooks[MAX_HOOKS];
 
     /**
      * Attached Modules
      */
-    MM_Module *_modules[MM_MODULNUM];
+    MM_Module *_modules[MAX_MODULES];
 
     /**
      * Indicates if the controller has a nodeId
@@ -114,22 +158,6 @@ private:
      * For set the nodeID or reset the node
      */
     void initialization();
-
-    /**
-     * Indicates if the cfg Button is pressed or not
-     */
-    volatile bool _cfgBtnPressed = false;
-
-    /**
-     * stores the last time(millis()) the cfg Button triggered
-     */
-    volatile uint32_t _cfgBtnTriggerTime = 0;
-
-    /**
-     * reads if the cfg Button is pressed and set _cfgBtnPressed and
-     * store the time(millis()) when the cfg Button triggerd in _cfgBtnPressTime
-     */
-    void processCfgButton();
 
 public:
     /**
@@ -296,7 +324,7 @@ public:
      * @param function to call when matched
      * @return true if successfully added
      */
-    bool hookAttach(MM_MsgType msgType, uint16_t target, uint8_t port, MM_CMD cmd, void (*function)(MM_Packet&));
+    bool attachHook(MM_MsgType msgType, uint16_t target, uint8_t port, MM_CMD cmd, void (*function)(MM_Packet&));
 
     /**
      * Main loop
@@ -316,6 +344,11 @@ public:
      * resets the whole controller - clears the eeprom, reboot and initialize the controller and modules
      */
     void reset();
+
+    /**
+     * reboot the node
+     */
+    void reboot();
 
 };
 

@@ -50,7 +50,7 @@ bool MM_UART::Send(MM_MsgType msgType, uint16_t target, uint16_t source, uint8_t
     _interface->write(0x1F);
     _interface->print(source,HEX);
     _interface->write(0x1F);
-    if(port > 0) {
+    if(port >= 0) {
         _interface->print(port,HEX);
     }else{
         //Arduino print internally casts to double :(
