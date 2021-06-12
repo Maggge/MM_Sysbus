@@ -1,6 +1,6 @@
 #include <MM_Sysbus.h>
 
-MM_Sysbus sysbus(1); //Controller with node-ID 1
+MM_Sysbus sysbus(0); //Controller with node-ID 0 - Gateway-Mode: faster routing between interfaces but no Modules or Hooks supported
 
 MM_CAN can(10, CAN_125KBPS, MCP_8MHZ, 2); //Can-Bus Interface
 
