@@ -66,7 +66,17 @@ class MM_Module{
         uint8_t port();
 
         /**
-         * Configure pins etc.
+         * return the cfgid of the module
+         */
+        uint8_t cfgId();
+
+        /**
+         * return the Module type
+         */
+        MM_ModuleType moduleType();
+
+        /**
+         * Configure pins, load config etc.
          * @return bool true if successful
          */
         virtual void begin(bool useEEPROM, uint8_t cfgId);
@@ -103,6 +113,11 @@ class MM_Module{
          * to check if the config in EEPROM is for this module
          */
         MM_ModuleType _moduleType;
+
+        /**
+         * Target Port for Unicast
+         */ 
+        uint8_t _port = 0;
 
         /**
          * ID of the module
@@ -164,18 +179,59 @@ class MM_Module{
          * @return return true if the package is for the module
          */
         bool checkMsg(MM_Packet &pkg);
-
+  
         /**
          * Write the config to EEPROM
          * @param config struct
          */
-        template <class T> bool writeConfig(const T& config);
-
+        template <typename T> bool writeConfig(const T& config){
+            if(!_useEEPROM){
+                #ifdef MM_DEBUG
+                    Serial.println("EEPROM is deactivated!");
+                #endif
+                return false;
+            }
+            int eepromAddr = _controller->getEEPROMAddress(_cfgId);
+            if(sizeof(config) > MAX_CONFIG_SIZE || eepromAddr+2+MAX_CONFIG_SIZE+sizeof(_multicastTargets) > EEPROM.length()){
+                #ifdef MM_DEBUG
+                    Serial.println("ERROR: Size of the config is to large!");
+                #endif
+                return false;
+            }
+    
+            EEPROM.update(eepromAddr, _moduleType);
+            EEPROM.put(eepromAddr + 1, config);
+            return true;
+        }
         /**
          * Read the config from EEPROM
          * @param config struct
          */
-        template <class T> bool readConfig(T& config);
+        template <typename T> bool readConfig(T& config){
+            if(!_useEEPROM){
+                #ifdef MM_DEBUG
+                    Serial.println("EEPROM is deactivated!");
+                #endif
+                return false;
+            }
+            int eepromAddr = _controller->getEEPROMAddress(_cfgId);
+            if(sizeof(config) > MAX_CONFIG_SIZE || eepromAddr+2+MAX_CONFIG_SIZE+sizeof(_multicastTargets) > EEPROM.length()){
+                #ifdef MM_DEBUG
+                    Serial.println("ERROR: Size of the config is to large!");
+                #endif
+                return false;
+            } 
+            if(EEPROM.read(eepromAddr) == _moduleType){
+                EEPROM.get(eepromAddr + 1, config);
+                return true;
+            }else{
+                #ifdef MM_DEBUG
+                    Serial.println("ERROR: No config for this module found!");
+                #endif
+                return false;
+            }
+            
+        }
 
         /**
          * Reset current configuration and reboot the node
@@ -183,27 +239,11 @@ class MM_Module{
          */
         bool cfgReset();
 
-    private:
         /**
-         * Target Port for Unicast
-         */ 
-        uint8_t _port = 0;
-
-        /**
-         * Write data to EEPROM
-         * @param eepromAddr where to write the data in EEPROM
-         * @param data struct to write
-         * @return true if successfull
+         * Create an ErrorMsg an return to sender
+         * @param pkg to return
          */
-        template <class T> bool EEPROM_write(int eepromAddr, T& data);
-
-        /**
-         * Read data from EEPROM
-         * @param eepromAddr where to find the data in EEPROM
-         * @param data struct to read
-         * @return true if successfull
-         */
-        template <class T> bool EEPROM_read(int eepromAddr, T& data);
+        void returnErrorMsg(MM_Packet &pkg); 
     
 };
 

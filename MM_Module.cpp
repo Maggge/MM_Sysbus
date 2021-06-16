@@ -2,20 +2,10 @@
 #include "MM_Sysbus.h"
 
 void MM_Module::begin(bool useEEPROM, uint8_t cfgId){
+    _cfgId = cfgId;
     if(useEEPROM){
-        int eepromAddr = _controller->getEEPROMAddress(cfgId);
-        if(eepromAddr+1+MAX_CONFIG_SIZE+sizeof(_multicastTargets) <= EEPROM.length()){
-            _useEEPROM = true;
-            _cfgId = cfgId;
-            if(EEPROM.read(eepromAddr) == _cfgId){
-                loadMulticastTargets();
-            }
-        }
-        else{
-             #ifdef MM_DEBUG
-                Serial.println("ERROR: End of EEPROM reached!");
-            #endif
-        }
+        _useEEPROM = true;        
+        loadMulticastTargets();
     }
     broadcastModuleType();
 }
@@ -34,85 +24,99 @@ bool MM_Module::checkMsg(MM_Packet &pkg){
         return true;
     }
     else if (pkg.meta.type == MM_MsgType::Multicast) {
+        #ifdef MM_DEBUG
+            Serial.println("Check Multicast");
+            Serial.println("Multicast-Targets:");
+            for(int i = 0; i < MULTICAST_TARGETS; i++){
+                Serial.print(i);
+                Serial.print(": ");
+                Serial.print(_multicastTargets[i].address);
+                Serial.print("  ");
+                Serial.println(_multicastTargets[i].filter);
+            }
+        #endif
         for (int i = 0; i < MULTICAST_TARGETS; i++) {
-            if (_multicastTargets[i].address == pkg.meta.target && _multicastTargets[i].filter == (MM_CMD)pkg.data[0]) {
+            if (_multicastTargets[i].address == pkg.meta.target && (_multicastTargets[i].filter == (MM_CMD)pkg.data[0] || _multicastTargets[i].filter == MM_CMD::ALL_CMDS)){
                 return true;
             }
         }
         return false;
     }
     else if (pkg.meta.type == MM_MsgType::Unicast && pkg.meta.port == _port) {
-        
-        MM_Packet ack;
-        ack.meta.type = MM_MsgType::Broadcast;
-        uint16_t groupAddr = (uint16_t)pkg.data[1] << 8;
-        groupAddr |= (uint16_t)pkg.data[2];
-
-        switch (pkg.data[0])
-        {
-        case MM_CMD::REQ_TYPE:
+        if(pkg.data[0] == REQ_TYPE){
             if(_controller != NULL){
                 broadcastModuleType();
             }
             return false;
-        case MM_CMD::GROUP_ADD:
-            ack.len = 5;
-            ack.data[1] = pkg.data[0];
-            ack.data[2] = pkg.data[1]; 
-            ack.data[3] = pkg.data[2];
-            ack.data[4] = pkg.data[3];
-            if(addMulticastTarget(groupAddr, (MM_CMD)pkg.data[3])){
-                ack.data[0] = MM_CMD::ACK;
-            }
-            else{
-                ack.data[0] = MM_CMD::ERROR;
-            }
-            break;
-        case MM_CMD::GROUP_REM:
-            ack.len = 5;
-            ack.data[1] = pkg.data[0];
-            ack.data[2] = pkg.data[1]; 
-            ack.data[3] = pkg.data[2];
-            ack.data[4] = pkg.data[3];
-            if(removeMulticastTarget(groupAddr, (MM_CMD)pkg.data[3])){
-                ack.data[0] = MM_CMD::ACK;
-            }
-            else{
-                ack.data[0] = MM_CMD::ERROR;
-            }
-            break;
-        case MM_CMD::GROUPS_CLEAR:
-            ack.len = 2;
-            ack.data[1] = pkg.data[0];
-            if(clearMulticastTargets()){
-                ack.data[0] = MM_CMD::ACK;
-            }
-            else{
-                ack.data[0] = MM_CMD::ERROR;
-            }
-            break;
-        case MM_CMD::GROUP_GET:{
-            ack.len = 5;
-            ack.data[0] = MM_CMD::GROUP_RETURN;
-            ack.data[1] = pkg.data[1];
-            ack.data[2] = highByte(_multicastTargets[pkg.data[1]].address);
-            ack.data[3] = lowByte(_multicastTargets[pkg.data[1]].address);
-            ack.data[4] = _multicastTargets[pkg.data[1]].filter;
-            break;
         }
-        default:
+        else if(pkg.data[0] == GROUP_ADD || pkg.data[0] == GROUP_REM){
+            if(pkg.len < 3 || pkg.len > 4){
+                returnErrorMsg(pkg);
+                return false;
+            }
+
+            uint16_t groupAddr = (uint16_t)pkg.data[1] << 8 | (uint16_t)pkg.data[2];
+            MM_CMD filter = ALL_CMDS;          
+            if(pkg.len == 4){
+                filter = (MM_CMD)pkg.data[3];
+            }
+
+            bool successfull;
+            if(pkg.data[0] == GROUP_ADD){
+                successfull = addMulticastTarget(groupAddr, filter);
+            }
+            else{
+                successfull = removeMulticastTarget(groupAddr, filter);
+            }
+            if(successfull){
+                if(_controller != NULL){
+                    uint8_t data[8];
+                    data[0] = MM_CMD::ACK;
+                    for (int i = 0; i < pkg.len; i++){
+                        data[i+1] = pkg.data[i];
+                    }
+                    uint8_t len;
+                    if(pkg.len == 3){
+                        data[4] = filter;
+                        len = 5;
+                    }else{
+                        len = 4;
+                    }
+                
+                    _controller->Send(MM_MsgType::Broadcast, pkg.meta.source, len, data);
+                }
+                return false;
+            }
+            else{
+                returnErrorMsg(pkg);
+            }
+            return false;
+        }
+        else if(pkg.data[0] == GROUP_GET){
+            if(_controller != NULL){
+                MM_Target req = _multicastTargets[pkg.data[1]];
+                uint8_t data[8];
+                data[0] = GROUP_RETURN;
+                data[1] = pkg.data[1];
+                data[2] = highByte(req.address);
+                data[3] = lowByte(req.address);
+                data[4] = req.filter;
+                _controller->Send(MM_MsgType::Broadcast, pkg.meta.source, 5, data);
+            }
+            return false;
+        }
+        else if(pkg.data[0] == GROUPS_CLEAR){
+            clearMulticastTargets();
+            if(_controller != NULL){
+                uint8_t data[] = {MM_CMD::ACK, MM_CMD::GROUPS_CLEAR};
+                _controller->Send(MM_MsgType::Broadcast, pkg.meta.source, 2, data);
+            }
+        }
+        else{
             return true;
         }
-        _controller->Send(ack);
-        return true;
     }
-    else if(pkg.meta.type == MM_MsgType::Broadcast){
-        if(pkg.data[0] == MM_CMD::REQ_TYPE){
-            broadcastModuleType();
-        }
-        return false;
-    }
-    else {
+    else{
         return false;
     }
 }
@@ -121,54 +125,18 @@ uint8_t MM_Module::port(){
     return _port;
 }
 
+uint8_t MM_Module::cfgId(){
+    return _cfgId;
+}
+
+MM_ModuleType MM_Module::moduleType(){
+    return _moduleType;
+}
+
 void MM_Module::broadcastModuleType(){
     if(_controller == NULL) return;
     uint8_t typeMsg[] = {MOD_TYPE, _moduleType, _useEEPROM};
     _controller->Send(Broadcast, 0, _port, 3, typeMsg);
-}
-
-template <class T> bool MM_Module::writeConfig(const T& config){
-    if(!_useEEPROM){
-        #ifdef MM_DEBUG
-            Serial.println("EEPROM is deactivated!");
-        #endif
-        return false;
-    }
-
-    if(sizeof(config) > MAX_CONFIG_SIZE){
-        #ifdef MM_DEBUG
-            Serial.println("ERROR: Size of the config is to large!");
-        #endif
-        return false;
-    }
-
-    int eepromAddr = _controller->getEEPROMAddress(_cfgId);
-    return (EEPROM_write(eepromAddr, _moduleType) && EEPROM_write(eepromAddr + 1, config));
-}
-
-template <class T> bool MM_Module::readConfig(T& config){
-    if(!_useEEPROM){
-        #ifdef MM_DEBUG
-            Serial.println("EEPROM is deactivated!");
-        #endif
-        return false;
-    }
-    if(sizeof(config) > MAX_CONFIG_SIZE){
-        #ifdef MM_DEBUG
-            Serial.println("ERROR: Size of the config is to large!");
-        #endif
-        return false;
-    }
-    int eepromAddr = _controller->getEEPROMAddress(_cfgId);
-    if(EEPROM.read(eepromAddr) == _moduleType){
-        return EEPROM_read(eepromAddr + 1, config);
-    }else{
-        #ifdef MM_DEBUG
-            Serial.println("ERROR: No config for this module found!");
-        #endif
-        return false;
-    }
-    
 }
 
 //-----------MulticastTargets---------------------
@@ -197,6 +165,16 @@ bool MM_Module::addMulticastTarget(uint16_t addr, MM_CMD filter){
                 Serial.print(",  ");
                 Serial.println(filter);
             #endif
+            #ifdef MM_DEBUG
+                Serial.println("Multicast-Targets:");
+                for(int i = 0; i < MULTICAST_TARGETS; i++){
+                    Serial.print(i);
+                    Serial.print(": ");
+                    Serial.print(_multicastTargets[i].address);
+                    Serial.print("  ");
+                    Serial.println(_multicastTargets[i].filter);
+                }
+            #endif
             if(_useEEPROM){
                 return saveMulticastTargets();
             }
@@ -222,6 +200,16 @@ bool MM_Module::removeMulticastTarget(uint16_t addr, MM_CMD filter){
             #endif
             _multicastTargets[i].address = NULL;
             _multicastTargets[i].filter = NULL;
+            #ifdef MM_DEBUG
+                Serial.println("Multicast-Targets:");
+                for(int i = 0; i < MULTICAST_TARGETS; i++){
+                    Serial.print(i);
+                    Serial.print(": ");
+                    Serial.print(_multicastTargets[i].address);
+                    Serial.print("  ");
+                    Serial.println(_multicastTargets[i].filter);
+                }
+            #endif
             if(_useEEPROM){
                 return saveMulticastTargets();
             }
@@ -272,8 +260,16 @@ bool MM_Module::saveMulticastTargets(){
         return false;
     }
     int eepromAddr = _controller->getEEPROMAddress(_cfgId) + 1 + MAX_CONFIG_SIZE;
-    EEPROM_write(eepromAddr, _multicastTargets);
-
+    if(eepromAddr+1+sizeof(_multicastTargets) > EEPROM.length()){
+        return false;
+    }
+    EEPROM.update(eepromAddr, _moduleType);
+    eepromAddr++;
+    for(int i = 0; i < MULTICAST_TARGETS; i++){
+        EEPROM.put(eepromAddr, _multicastTargets[i]);
+        eepromAddr += sizeof(MM_Target);
+    }
+    return true;
 }
 
 bool MM_Module::loadMulticastTargets(){
@@ -284,23 +280,28 @@ bool MM_Module::loadMulticastTargets(){
         return false;
     }
     int eepromAddr = _controller->getEEPROMAddress(_cfgId) + 1 + MAX_CONFIG_SIZE;
-    EEPROM_read(eepromAddr, _multicastTargets);
+    if(eepromAddr+1+sizeof(_multicastTargets) > EEPROM.length()){
+        return false;
+    }
+    if(EEPROM.read(eepromAddr) == _moduleType){
+        eepromAddr++;
+        for(int i = 0; i < MULTICAST_TARGETS; i++){
+            EEPROM.get(eepromAddr, _multicastTargets[i]);
+            eepromAddr += sizeof(MM_Target);
+        }
+        return true;
+    }
+    return false;
 }
 
-//--------------EEPROM--------------------
-
-template <class T> bool MM_Module::EEPROM_write(int eepromAddr, T& data){
-    const byte* p = (const byte*)(const void*)&data;
-    unsigned int i;
-    for (i = 0; i < sizeof(data); i++)
-          EEPROM.update(eepromAddr++, *p++);
-    return true;
-}
-
-template <class T> bool MM_Module::EEPROM_read(int eepromAddr, T& data){
-    byte* p = (byte*)(void*)&data;
-    unsigned int i;
-    for (i = 0; i < sizeof(data); i++)
-          *p++ = EEPROM.read(eepromAddr++);
-    return true;
+void MM_Module::returnErrorMsg(MM_Packet &pkg){
+    if(_controller != NULL){
+        uint8_t data[8];
+        data[0] = MM_CMD::ERROR;
+        for(int i = 0; i < pkg.len; i++){
+            data[i+1] = pkg.data[i];
+        }
+        
+        _controller->Send(MM_MsgType::Unicast, pkg.meta.source, pkg.len+1, data);  
+    }
 }

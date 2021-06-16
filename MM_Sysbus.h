@@ -51,6 +51,8 @@
 #include "MM_Hook.h"
 #include "MM_Module.h"
 
+#include "MM_BasicIO.h"
+
 enum ButtonState{
     Released,
     Pressed,
@@ -73,6 +75,7 @@ public:
      * @return the Button-state, Released - if released, Short_push if the push down was under t_long_press, Long_push if the push down was over t_long_press
      */
     ButtonState process();
+
 private:
 
     /**
@@ -337,7 +340,6 @@ public:
      *  returns the EEPROM Address for the register of the module
      *  @param cfgID the Id of the Module
      */
-
     uint16_t getEEPROMAddress(uint8_t cfgID);
     
     /**

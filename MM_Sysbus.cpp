@@ -13,19 +13,20 @@ MM_Sysbus::MM_Sysbus(uint16_t nodeID) {
 MM_Sysbus::MM_Sysbus(uint16_t nodeID, uint16_t EEPROMstart){
     _useEEPROM = true;
     _EEPROMaddr = EEPROMstart;
-    setNodeId(nodeID);
+    uint16_t id = 0;
 
     uint8_t cfg;
     EEPROM.get(_EEPROMaddr, cfg);
     if (cfg == 99) {
-        EEPROM.get(_EEPROMaddr + 1, _nodeID);
+        EEPROM.get(_EEPROMaddr + 1, id);
         _initialized = true;
         _firstboot = false;
     }
     else{
-        setNodeId(nodeID);
+        id = nodeID;
         _firstboot = true;
     }
+    setNodeId(id);
     #ifdef MM_DEBUG
         Serial.print("Node initailized with ID: ");
         Serial.println(_nodeID);
@@ -43,8 +44,9 @@ MM_Sysbus::MM_Sysbus(uint8_t cfgButton, uint8_t statusLED, uint16_t EEPROMstart)
     uint8_t cfg;
     EEPROM.get(_EEPROMaddr, cfg);
     if (cfg == 99) {
-        EEPROM.get(_EEPROMaddr + 1, _nodeID);
-        _initialized = true;
+        uint16_t id = 0;
+        EEPROM.get(_EEPROMaddr + 1, id);
+        setNodeId(id);
         _firstboot = false;
         #ifdef MM_DEBUG
             Serial.print("Node initailized with ID: ");
@@ -279,19 +281,6 @@ void MM_Sysbus::Process(MM_Packet& pkg) {
     uint8_t i;
     uint8_t data[8];
 
-    //attached hooks
-    for (i = 0; i < MAX_HOOKS; i++) {
-        if (_hooks[i].execute != NULL) {
-            if (
-                (_hooks[i].type == pkg.meta.type) &&
-                (_hooks[i].target == 0 || _hooks[i].target == pkg.meta.target) &&
-                (_hooks[i].port == -1  || _hooks[i].port == pkg.meta.port) &&
-                (_hooks[i].cmd == MM_CMD::ALL_CMDS  || (pkg.len > 0 && _hooks[i].cmd == pkg.data[0]))){
-                _hooks[i].execute(pkg);
-            }
-        }
-    }
- 
     //Internal logic
     if (pkg.len >= 1) {
         MM_CMD cmd = (MM_CMD)pkg.data[0];
@@ -331,24 +320,36 @@ void MM_Sysbus::Process(MM_Packet& pkg) {
                 break;
 
             default:
+                //attached modules
+                if (pkg.meta.type == MM_MsgType::Multicast) {
+                    for (int i = 0; i < MAX_MODULES; i++) {
+                        if (_modules[i] != NULL) {
+                            _modules[i]->process(pkg);
+                        }
+                    }
+                }
+                else if((pkg.meta.type == MM_MsgType::Unicast || pkg.meta.type == MM_MsgType::Streaming) && pkg.meta.target == _nodeID){
+                    for (int i = 0; i < MAX_MODULES; i++) {
+                        if (_modules[i] != NULL && _modules[i]->port() == pkg.meta.port) {
+                            Serial.print("Process Module ");
+                            Serial.println(_modules[i]->port());
+                            _modules[i]->process(pkg);
+                        }
+                    }
+                }
                 break;
         }
     }
 
-    //attached modules
-    if ( pkg.meta.type == MM_MsgType::Multicast ) {
-        for (int i = 0; i < MAX_MODULES; i++) {
-            if (_modules[i] != NULL) {
-                _modules[i]->process(pkg);
-            }
-        }
-        return;
-    }
-    else if((pkg.meta.type == MM_MsgType::Unicast || pkg.meta.type == MM_MsgType::Streaming) && pkg.meta.target == _nodeID){
-        for (int i = 0; i < MAX_MODULES; i++) {
-            if (_modules[i] != NULL && _modules[i]->port()) {
-                _modules[i]->process(pkg);
-                return;
+    //attached hooks
+    for (i = 0; i < MAX_HOOKS; i++) {
+        if (_hooks[i].execute != NULL) {
+            if (
+                (_hooks[i].type == pkg.meta.type) &&
+                (_hooks[i].target == 0 || _hooks[i].target == pkg.meta.target) &&
+                (_hooks[i].port == -1  || _hooks[i].port == pkg.meta.port) &&
+                (_hooks[i].cmd == MM_CMD::ALL_CMDS  || (pkg.len > 0 && _hooks[i].cmd == pkg.data[0]))){
+                _hooks[i].execute(pkg);
             }
         }
     }
@@ -356,7 +357,7 @@ void MM_Sysbus::Process(MM_Packet& pkg) {
 
 bool MM_Sysbus::attachModule(MM_Module *module, uint8_t cfgId){
     for(int i = 0; i < MAX_MODULES; i++){
-        if(_modules[i]->port() == module->port()){
+        if(_modules[i] == module){
             #ifdef MM_DEBUG
                 Serial.println("Port already in use");
             #endif
@@ -431,7 +432,11 @@ MM_Packet MM_Sysbus::loop(void) {
 
     //Packet handling
     Receive(pkg);
-
+    
+    if(_initialized && _nodeID == 0){
+        return pkg;
+    }
+    
     if(_cfgBtn != NULL){
         if (_cfgBtn->process() == ButtonState::Long_push) {
             initialization();

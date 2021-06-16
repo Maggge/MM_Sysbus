@@ -39,14 +39,14 @@ enum MM_CMD{
     ACK         = 0x0A, //Ack a sucessfull config/group setting( send back ack + the sent command )
 
 
-    CFG_RESET   = 0x11, //Factory Reset of the Module config
-    CFG_REG_SET = 0x12, //Set a config-register, 1st byte Register-index and 1-6 bytes config data
-    CFG_REG_GET = 0x13, //Request config, 1 byte Register-index
-    CFG_RETURN  = 0x14, //Send back the requestet config-Register, 1st byte Register-index and 1-6 bytes register data
+    CFG_RESET       = 0x11, //Factory Reset of the Module config
+    CFG_REG_SET     = 0x12, //Set a config-register, 1st byte Register-index and 1-6 bytes config data
+    CFG_REG_GET     = 0x13, //Request config, 1 byte Register-index
+    CFG_REG_COMMIT  = 0x14, //Send back the requestet config-Register, 1st byte Register-index and 1-6 bytes register data
 
     GROUPS_CLEAR= 0x1A, //Remove all Multicast addresses
-    GROUP_ADD   = 0x1B, //Add a Multicast address, 2-byte-address, 1 byte filter(MM_CMD)
-    GROUP_REM   = 0x1C, //Remove a Multicast address, 2-byte-address, 1 byte filter(MM_CMD)
+    GROUP_ADD   = 0x1B, //Add a Multicast address, 2-byte-address + (optional) 1 byte filter(MM_CMD)
+    GROUP_REM   = 0x1C, //Remove a Multicast address, 2-byte-address,  + (optional) 1 byte filter(MM_CMD)
     GROUP_GET   = 0x1D, //Request a Target by id, 1 byte target-id
     GROUP_RETURN= 0x1E, //Return the requestet target, 1-byte target-id, 2-byte-address, 1 byte filter(MM_CMD)    
     
@@ -104,7 +104,7 @@ enum MM_CMD{
     TON         = 0xF2, //Weight in tonns, float value (4 bytes)
     STREAM_START= 0xFC, //Start a Stream of type, MM_Stream (1 byte)
     STREAM_END  = 0xFE, //Terminate the stream
-    ALL_CMDS    = 0xFF,  //For hook filter only to execute on every cmd
+    ALL_CMDS    = 0xFF,  //For filter only to execute on every cmd
 };
 
 /**
@@ -179,7 +179,8 @@ struct MM_Packet{
 };
 
 enum MM_ModuleType{
-
+    Digital_Out     = 0x01,
+    Digital_In      = 0x02,
 };
 
 #endif

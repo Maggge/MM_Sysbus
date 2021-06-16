@@ -91,7 +91,7 @@ bool MM_UART::Receive(MM_Packet &pkg) {
                     _buf[0] = 2;
                     _buf[1] = read;
                 }
-            }else{
+            }else{                
                 _buf[_buf[0]] = read;
 
                 _buf[0]++;
@@ -168,7 +168,7 @@ bool MM_UART::Receive(MM_Packet &pkg) {
                                 return true;
                         }
                     }
-                }else if(_buf[0] > 23) {
+                }else if(_buf[0] > 35) {
                     retry = bufShift();
                 }
             }
